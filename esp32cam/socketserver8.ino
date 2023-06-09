@@ -1,144 +1,405 @@
+#include <ArduinoJson.h>
+#include "esp_camera.h"
+
+/*
+ * WebSocketClient.ino
+ *
+ *  Created on: 24.05.2015
+ *
+ */
+#include <Arduino.h>
+
+
 #include <WiFi.h>
-#include <DNSServer.h>
-#include <WebServer.h>
-#include <WiFiManager.h>
+#include <WiFiMulti.h>
+#include <WiFiClientSecure.h>
+
 #include <WebSocketsClient.h>
+#include <SocketIOclient.h>
 
-/*====== Defining API Endpoints ====== */
-static String HOST = "192.168.172.114"; // hosted on a linux machine with all ports open.
-static int PORT = 3000;
-static boolean useSSL = false;
-static String socketRoute = "/socket.io/?EIO=3";
-// Transport = Polling made it connect disconnect again and again, but that was working on Unity or Other Angular Applications.
+#ifdef DEBUG_ESP_PORT
+#define DEBUG_MSG(...) DEBUG_ESP_PORT( _VA_ARGS_)
+#else 
+#define DEBUG_MSG(...)
+#endif
+#define DEBUG_ESP_PORT Serial
 
-/*====== Defining Variables ====== */
-#define LED 2
+
+#define CAMERA_MODEL_AI_THINKER // Has PSRAM
+#if defined(CAMERA_MODEL_WROVER_KIT)
+#define PWDN_GPIO_NUM    -1
+#define RESET_GPIO_NUM   -1
+#define XCLK_GPIO_NUM    21
+#define SIOD_GPIO_NUM    26
+#define SIOC_GPIO_NUM    27
+
+#define Y9_GPIO_NUM      35
+#define Y8_GPIO_NUM      34
+#define Y7_GPIO_NUM      39
+#define Y6_GPIO_NUM      36
+#define Y5_GPIO_NUM      19
+#define Y4_GPIO_NUM      18
+#define Y3_GPIO_NUM       5
+#define Y2_GPIO_NUM       4
+#define VSYNC_GPIO_NUM   25
+#define HREF_GPIO_NUM    23
+#define PCLK_GPIO_NUM    22
+
+#elif defined(CAMERA_MODEL_ESP_EYE)
+#define PWDN_GPIO_NUM    -1
+#define RESET_GPIO_NUM   -1
+#define XCLK_GPIO_NUM    4
+#define SIOD_GPIO_NUM    18
+#define SIOC_GPIO_NUM    23
+
+#define Y9_GPIO_NUM      36
+#define Y8_GPIO_NUM      37
+#define Y7_GPIO_NUM      38
+#define Y6_GPIO_NUM      39
+#define Y5_GPIO_NUM      35
+#define Y4_GPIO_NUM      14
+#define Y3_GPIO_NUM      13
+#define Y2_GPIO_NUM      34
+#define VSYNC_GPIO_NUM   5
+#define HREF_GPIO_NUM    27
+#define PCLK_GPIO_NUM    25
+
+#elif defined(CAMERA_MODEL_M5STACK_PSRAM)
+#define PWDN_GPIO_NUM     -1
+#define RESET_GPIO_NUM    15
+#define XCLK_GPIO_NUM     27
+#define SIOD_GPIO_NUM     25
+#define SIOC_GPIO_NUM     23
+
+#define Y9_GPIO_NUM       19
+#define Y8_GPIO_NUM       36
+#define Y7_GPIO_NUM       18
+#define Y6_GPIO_NUM       39
+#define Y5_GPIO_NUM        5
+#define Y4_GPIO_NUM       34
+#define Y3_GPIO_NUM       35
+#define Y2_GPIO_NUM       32
+#define VSYNC_GPIO_NUM    22
+#define HREF_GPIO_NUM     26
+#define PCLK_GPIO_NUM     21
+
+#elif defined(CAMERA_MODEL_M5STACK_V2_PSRAM)
+#define PWDN_GPIO_NUM     -1
+#define RESET_GPIO_NUM    15
+#define XCLK_GPIO_NUM     27
+#define SIOD_GPIO_NUM     22
+#define SIOC_GPIO_NUM     23
+
+#define Y9_GPIO_NUM       19
+#define Y8_GPIO_NUM       36
+#define Y7_GPIO_NUM       18
+#define Y6_GPIO_NUM       39
+#define Y5_GPIO_NUM        5
+#define Y4_GPIO_NUM       34
+#define Y3_GPIO_NUM       35
+#define Y2_GPIO_NUM       32
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     26
+#define PCLK_GPIO_NUM     21
+
+#elif defined(CAMERA_MODEL_M5STACK_WIDE)
+#define PWDN_GPIO_NUM     -1
+#define RESET_GPIO_NUM    15
+#define XCLK_GPIO_NUM     27
+#define SIOD_GPIO_NUM     22
+#define SIOC_GPIO_NUM     23
+
+#define Y9_GPIO_NUM       19
+#define Y8_GPIO_NUM       36
+#define Y7_GPIO_NUM       18
+#define Y6_GPIO_NUM       39
+#define Y5_GPIO_NUM        5
+#define Y4_GPIO_NUM       34
+#define Y3_GPIO_NUM       35
+#define Y2_GPIO_NUM       32
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     26
+#define PCLK_GPIO_NUM     21
+
+#elif defined(CAMERA_MODEL_M5STACK_ESP32CAM)
+#define PWDN_GPIO_NUM     -1
+#define RESET_GPIO_NUM    15
+#define XCLK_GPIO_NUM     27
+#define SIOD_GPIO_NUM     25
+#define SIOC_GPIO_NUM     23
+
+#define Y9_GPIO_NUM       19
+#define Y8_GPIO_NUM       36
+#define Y7_GPIO_NUM       18
+#define Y6_GPIO_NUM       39
+#define Y5_GPIO_NUM        5
+#define Y4_GPIO_NUM       34
+#define Y3_GPIO_NUM       35
+#define Y2_GPIO_NUM       17
+#define VSYNC_GPIO_NUM    22
+#define HREF_GPIO_NUM     26
+#define PCLK_GPIO_NUM     21
+
+#elif defined(CAMERA_MODEL_AI_THINKER)
+#define PWDN_GPIO_NUM     32
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM      0
+#define SIOD_GPIO_NUM     26
+#define SIOC_GPIO_NUM     27
+
+#define Y9_GPIO_NUM       35
+#define Y8_GPIO_NUM       34
+#define Y7_GPIO_NUM       39
+#define Y6_GPIO_NUM       36
+#define Y5_GPIO_NUM       21
+#define Y4_GPIO_NUM       19
+#define Y3_GPIO_NUM       18
+#define Y2_GPIO_NUM        5
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     23
+#define PCLK_GPIO_NUM     22
+
+#elif defined(CAMERA_MODEL_TTGO_T_JOURNAL)
+#define PWDN_GPIO_NUM      0
+#define RESET_GPIO_NUM    15
+#define XCLK_GPIO_NUM     27
+#define SIOD_GPIO_NUM     25
+#define SIOC_GPIO_NUM     23
+
+#define Y9_GPIO_NUM       19
+#define Y8_GPIO_NUM       36
+#define Y7_GPIO_NUM       18
+#define Y6_GPIO_NUM       39
+#define Y5_GPIO_NUM        5
+#define Y4_GPIO_NUM       34
+#define Y3_GPIO_NUM       35
+#define Y2_GPIO_NUM       17
+#define VSYNC_GPIO_NUM    22
+#define HREF_GPIO_NUM     26
+#define PCLK_GPIO_NUM     21
+
+#else
+#error "Camera model not selected"
+#endif
+
+#include "config.h"
+
+
+
+WiFiMulti WiFiMulti;
 WebSocketsClient webSocket;
-uint32_t chipId = 0;
-
-
-/*====== Helper Functions ====== */
-void APModeCallback(WiFiManager* manager) {
-  Serial.println("Entered config mode, Please login with your WiFi/AP Credentials..");
-  Serial.println(WiFi.softAPIP());
-  Serial.println(manager->getConfigPortalSSID());
-}
+SocketIOclient socketIO;
+//WebSocketsClient socketIO;
+#define USE_SERIAL Serial
 
 void hexdump(const void *mem, uint32_t len, uint8_t cols = 16) {
   const uint8_t* src = (const uint8_t*) mem;
-  Serial.printf("\n[HEXDUMP] Address: 0x%08X len: 0x%X (%d)", (ptrdiff_t)src, len, len);
+  USE_SERIAL.printf("\n[HEXDUMP] Address: 0x%08X len: 0x%X (%d)", (ptrdiff_t)src, len, len);
   for(uint32_t i = 0; i < len; i++) {
     if(i % cols == 0) {
-      Serial.printf("\n[0x%08X] 0x%08X: ", (ptrdiff_t)src, i);
+      USE_SERIAL.printf("\n[0x%0hola8X] 0x%08X: ", (ptrdiff_t)src, i);
     }
-    Serial.printf("%02X ", *src);
+    USE_SERIAL.printf("%02X ", *src);
     src++;
   }
-  Serial.printf("\n");
+  USE_SERIAL.printf("\n");
 }
 
-void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 
-  switch (type) {
-    case WStype_DISCONNECTED:
-      Serial.printf("[WSc] Disconnected!\n");
-      break;
-    case WStype_CONNECTED:
-      Serial.printf("[WSc] Connected to url: %s\n", payload);
+void setupCamera()
+{
 
-      // send message to server when Connected
-       webSocket.sendTXT("Connected");
-      break;
-    case WStype_TEXT:
-      Serial.printf("[WSc] get text: %s\n", payload);
-
-      // send message to server
-      // webSocket.sendTXT("message here");
-      break;
-    case WStype_BIN:
-      Serial.printf("[WSc] get binary length: %u\n", length);
-       hexdump(payload, length);
-
-      // send data to server
-      // webSocket.sendBIN(payload, length);
-      break;
-    case WStype_ERROR:
-    case WStype_FRAGMENT_TEXT_START:
-    case WStype_FRAGMENT_BIN_START:
-    case WStype_FRAGMENT:
-    case WStype_FRAGMENT_FIN:
-      break;
+    camera_config_t config;
+    config.ledc_channel = LEDC_CHANNEL_0;
+    config.ledc_timer = LEDC_TIMER_0;
+    config.pin_d0 = Y2_GPIO_NUM;
+    config.pin_d1 = Y3_GPIO_NUM;
+    config.pin_d2 = Y4_GPIO_NUM;
+    config.pin_d3 = Y5_GPIO_NUM;
+    config.pin_d4 = Y6_GPIO_NUM;
+    config.pin_d5 = Y7_GPIO_NUM;
+    config.pin_d6 = Y8_GPIO_NUM;
+    config.pin_d7 = Y9_GPIO_NUM;
+    config.pin_xclk = XCLK_GPIO_NUM;
+    config.pin_pclk = PCLK_GPIO_NUM;
+    config.pin_vsync = VSYNC_GPIO_NUM;
+    config.pin_href = HREF_GPIO_NUM;
+    config.pin_sscb_sda = SIOD_GPIO_NUM;
+    config.pin_sscb_scl = SIOC_GPIO_NUM;
+    config.pin_pwdn = PWDN_GPIO_NUM;
+    config.pin_reset = RESET_GPIO_NUM;
+    config.xclk_freq_hz = 20000000;
+    config.pixel_format = PIXFORMAT_JPEG;
+  if(psramFound()){
+    config.frame_size = FRAMESIZE_SVGA;
+    config.jpeg_quality = 20;
+    config.fb_count = 2;
+  }else{
+    config.frame_size = FRAMESIZE_CIF;
+    config.jpeg_quality = 40;
+    config.fb_count = 1;
   }
-
+  // Init Camera
+    esp_err_t err = esp_camera_init(&config);
+    if (err != ESP_OK)
+    {
+        Serial.printf("Camera init failed with error 0x%x", err);
+        return;
+    }
 }
 
 
-/*====== Socket Functions ====== */
-void socket_Connected(const char * payload, size_t length) {
-  Serial.println("Socket.IO Connected!");
+void socketIOEvent(socketIOmessageType_t type, uint8_t * payload, size_t length) {
+    switch(type) {
+        case sIOtype_DISCONNECT:
+            Serial.printf("[IOc] Disconnected!\n");
+            break;
+        case sIOtype_CONNECT:
+            Serial.printf("[IOc] Connected to url: %s\n", payload);
+
+            // join default namespace (no auto join in Socket.IO V3)
+
+            socketIO.send(sIOtype_CONNECT, "/");
+                       // socketIO.send("hiiii");
+
+            
+            break;
+        case sIOtype_EVENT:
+            Serial.printf("[IOc] get event: %s\n", payload);
+            break;
+        case sIOtype_ACK:
+            Serial.printf("[IOc] get ack: %u\n", length);
+            hexdump(payload, length);
+            break;
+        case sIOtype_ERROR:
+            Serial.printf("[IOc] get error: %u\n", length);
+            hexdump(payload, length);
+            break;
+        case sIOtype_BINARY_EVENT:
+            Serial.printf("[IOc] get binary: %u\n", length);
+            hexdump(payload, length);
+            break;
+        case sIOtype_BINARY_ACK:
+            Serial.printf("[IOc] get binary ack: %u\n", length);
+            hexdump(payload, length);
+            break;
+    }
 }
 
-
-void socket_event(const char * payload, size_t length) {
-  Serial.print("got message: ");
-  Serial.println(payload);
-}
 
 void setup() {
-  // Set pin mode
-  pinMode(LED, OUTPUT);
-  Serial.begin(115200);
-  Serial.setDebugOutput(true);
-  /*======= Get ESP Chip ID =======*/
-  for (int i = 0; i < 17; i = i + 8) {
-    chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
+
+  // USE_SERIAL.begin(921600);
+  USE_SERIAL.begin(115200);
+ delay(10);
+      USE_SERIAL.print("hola//////////////////////");
+
+  //Serial.setDebugOutput(true);
+  USE_SERIAL.setDebugOutput(true);
+
+  USE_SERIAL.println();
+  USE_SERIAL.println();
+  USE_SERIAL.println();
+
+  for(uint8_t t = 4; t > 0; t--) {
+    USE_SERIAL.printf("[SETUP] BOOT WAIT %d...\n", t);
+    USE_SERIAL.flush();
+    delay(1000);
   }
 
-  /*======= WiFi Manager Setup =======*/
-  WiFiManager wifiManager;
-  wifiManager.setAPCallback(APModeCallback);
-  // Let it sleep into the eternal world of darkness after 5 minutes
-  wifiManager.setTimeout(300);
-  //On connection Failure
-  if (!wifiManager.autoConnect("Webmind", "1223334444")) {
-    Serial.println("Failed Connection to remote Access Point");
-    ESP.restart();
-    delay(5000);
+  WiFiMulti.addAP("SSID", "PASSWORD");
+
+
+  //WiFi.disconnect();
+  while(WiFiMulti.run() != WL_CONNECTED) {
+         Serial.println("reconectando...");
+
+    delay(100);
   }
 
-  /*======= Socket Setup =======*/
-  
-  webSocket.beginSocketIO(HOST, PORT, socketRoute);
-  webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(3000);
-//  webSocket.setExtraHeaders("Authorization: Bearer ");
+
+  setupCamera();
+
+  //socketIO.setExtraHeaders("Authorization: 1234567890");
+  socketIO.begin("HOST", PORT, "/socket.io/?EIO=4");
+
+
+  // event handler
+//socketIO.onEvent(webSocketEvent);
+  socketIO.onEvent(socketIOEvent);
+
+  // use HTTP Basic Authorization this is optional remove if not needed
+  //webSocket.setAuthorization("user", "Password");
+
+  // try ever 5000 again if connection has failed
+  //webSocket.setReconnectInterval(3000);
+
 }
+unsigned long messageTimestamp = 0;
 
 void loop() {
-  webSocket.loop();
-//  webSocket.sendTXT("['hello','some data']"); 
-//  
-//
+//  webSocket.loop();
+socketIO.loop();
+        
+//    uint64_t now = millis();
+
+//    // can't make it fast. SocketIO keep disconnecting
+//    if (now - messageTimestamp > 1000)
+//    {
+//        messageTimestamp = now;
+
 //        // create JSON message for Socket.IO (event)
 //        DynamicJsonDocument doc(15000);
 //        JsonArray array = doc.to<JsonArray>();
-//        
+//
 //        // add event name
 //        // Hint: socket.on('event_name', ....
-//        array.add("hello");
+//        array.add("sendImage");
 //
 //        // add payload (parameters) for the event
 //        JsonObject param1 = array.createNestedObject();
-//        param1["hostname"] = hostname;
+//        param1["hostname"] = "ESP32";
+//        param1["location"] = "Park";
 //        param1["picture"] = String((char *)fb->buf);
 //
 //        // JSON to String (serializion)
 //        String output;
+//        String output2;
 //        serializeJson(doc, output);
-//
-//        // Send event        
-//        webSocket.sendEVENT(output);
-//        Serial.println("Image sent");
-//        Serial.println(output);
 //        
+//        socketIO.sendEVENT(output); //, (char) camIP[3]);
+//
+//        Serial.println("Image sent");
+//    }
+
+      uint64_t now = millis();
+        
+     if(now - messageTimestamp > 2000) {
+        messageTimestamp = now;
+        camera_fb_t *fb = NULL;
+        fb = esp_camera_fb_get();
+
+//        for (int i = 0; i < fb->len; i++){
+//          Serial.println(fb->buf[i]);  
+//        }
+        if (!fb)
+        {
+        Serial.println("Camera capture failed");
+//        return;
+        }
+        DynamicJsonDocument doc(30000);
+        JsonArray array = doc.to<JsonArray>();
+        array.add("sendImage");
+        JsonObject param1 = array.createNestedObject();
+        param1["now"] = (uint32_t) now;
+        param1["picture"] = fb->len;
+        String output;
+        serializeJson(doc, output);
+        socketIO.sendEVENT(output);
+        USE_SERIAL.println(output);
+        esp_camera_fb_return(fb);
+
+        }
+
+
 }
